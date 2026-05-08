@@ -186,10 +186,27 @@ export async function postToX(row: SheetRow): Promise<PostResult> {
     await randomMouseMovement(page);
     await sleep(randomInt(500, 1000));
 
-    // 投稿ボタンをクリック(/compose/tweet ダイアログでは tweetButton が正しい)
+    // 投稿実行: ボタンクリック → 失敗時はキーボードショートカット (Ctrl+Enter)
     const submitButton = page.locator('[data-testid="tweetButton"]').first();
     await submitButton.waitFor({ state: "visible", timeout: 10_000 });
-    await submitButton.click();
+    let submitted = false;
+    try {
+      await submitButton.click({ timeout: 5_000 });
+      submitted = true;
+    } catch {
+      // オーバーレイで pointer-events が intercept されるケース
+      try {
+        await submitButton.click({ force: true, timeout: 5_000 });
+        submitted = true;
+      } catch {
+        // 最終手段: フォーカス戻して Ctrl+Enter (Twitter公式ショートカット)
+        await tweetBox.focus();
+        await sleep(randomInt(200, 500));
+        await page.keyboard.press("Control+Enter");
+        submitted = true;
+      }
+    }
+    if (!submitted) throw new Error("投稿ボタンの操作に失敗しました");
 
     // 投稿完了を待機(URLが変わるか、successトーストが出る)
     await sleep(randomInt(3000, 5000));
