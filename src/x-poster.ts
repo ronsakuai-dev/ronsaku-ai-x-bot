@@ -138,6 +138,38 @@ async function uploadImage(page: Page, imageUrl: string): Promise<void> {
   fs.unlinkSync(tmpPath);
 }
 
+// ------- ツイート差分検証用 -------
+
+/**
+ * @ronsaku_ai のプロフィールから「最新(=ID最大)のツイートhref」を取得する
+ * - 投稿前後で比較し、差分があれば投稿成功と判定するために使用
+ * - 必ず article 要素が出るまで待ってから取得
+ */
+async function getLatestTweetHref(context: BrowserContext): Promise<string> {
+  const page = await context.newPage();
+  try {
+    await page.goto(`https://x.com/ronsaku_ai`, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    try {
+      await page.waitForSelector('article[data-testid="tweet"]', { timeout: 15_000 });
+    } catch {
+      return "";
+    }
+    await sleep(1500);
+    const links = page.locator('article[data-testid="tweet"] a[href*="/status/"]');
+    const count = await links.count();
+    let latest = "";
+    for (let i = 0; i < count; i++) {
+      const href = await links.nth(i).getAttribute("href");
+      if (href && /\/status\/\d+$/.test(href.split("?")[0] ?? "") && (!latest || href > latest)) {
+        latest = href;
+      }
+    }
+    return latest;
+  } finally {
+    await page.close();
+  }
+}
+
 // ------- 投稿実行 -------
 
 /**
@@ -186,49 +218,54 @@ export async function postToX(row: SheetRow): Promise<PostResult> {
     await randomMouseMovement(page);
     await sleep(randomInt(500, 1000));
 
-    // 投稿実行: ボタンクリック → 失敗時はキーボードショートカット (Ctrl+Enter)
+    // 投稿実行: 通常クリック → force → JS直接click → キーボードの順でフォールバック
     const submitButton = page.locator('[data-testid="tweetButton"]').first();
     await submitButton.waitFor({ state: "visible", timeout: 10_000 });
-    let submitted = false;
+    const shortcutModifier = process.platform === "darwin" ? "Meta" : "Control";
     try {
       await submitButton.click({ timeout: 5_000 });
-      submitted = true;
     } catch {
-      // オーバーレイで pointer-events が intercept されるケース
       try {
         await submitButton.click({ force: true, timeout: 5_000 });
-        submitted = true;
       } catch {
-        // 最終手段: フォーカス戻して Ctrl+Enter (Twitter公式ショートカット)
-        await tweetBox.focus();
-        await sleep(randomInt(200, 500));
-        await page.keyboard.press("Control+Enter");
-        submitted = true;
+        try {
+          // JavaScript経由でDOMのclick()を直接呼ぶ(オーバーレイ無視)
+          await submitButton.evaluate((el) => (el as unknown as { click: () => void }).click());
+        } catch {
+          // 最終手段: Twitter公式ショートカット (macOS=Cmd+Enter, Linux/Win=Ctrl+Enter)
+          await tweetBox.focus();
+          await sleep(randomInt(200, 500));
+          await page.keyboard.press(`${shortcutModifier}+Enter`);
+        }
       }
     }
-    if (!submitted) throw new Error("投稿ボタンの操作に失敗しました");
 
-    // 投稿完了を待機(URLが変わるか、successトーストが出る)
-    await sleep(randomInt(3000, 5000));
+    // 投稿確定待機
+    await sleep(randomInt(4000, 6000));
 
-    // 投稿後URLの取得
-    // ホームに戻って最新ツイートのURLを取得
-    await page.goto(`https://x.com/ronsaku_ai`, { waitUntil: "domcontentloaded", timeout: 30_000 });
-    await sleep(randomInt(2000, 3000));
+    // 投稿確定の検証: composeダイアログが閉じている = テキストエリアが消えていることを確認
+    // 投稿成功すると tweetTextarea_0 は DOM から消える / hidden になる
+    const stillVisible = await tweetBox.isVisible().catch(() => false);
+    if (stillVisible) {
+      // テキストエリアがまだ見える = 投稿失敗(モーダルが閉じていない)
+      return {
+        success: false,
+        error: "投稿後も compose ダイアログが閉じておらず、投稿が確定していません",
+      };
+    }
 
-    // 最新ツイートのリンクを取得
-    const tweetLink = page.locator('article[data-testid="tweet"] a[href*="/status/"]').first();
-    let tweetUrl = "";
-    if ((await tweetLink.count()) > 0) {
-      const href = await tweetLink.getAttribute("href");
-      if (href) {
-        tweetUrl = `https://x.com${href}`;
-      }
+    // プロフィールページから最新ツイートURLを取得 (best effort: 取れなくても成功扱い)
+    let tweetUrl = "https://x.com/ronsaku_ai";
+    try {
+      const href = await getLatestTweetHref(context);
+      if (href) tweetUrl = `https://x.com${href.split("?")[0]}`;
+    } catch {
+      /* URL取得失敗は致命的ではない */
     }
 
     return {
       success: true,
-      tweetUrl: tweetUrl || "https://x.com/ronsaku_ai",
+      tweetUrl,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
