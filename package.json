@@ -1,0 +1,25 @@
+{
+  "name": "ronsaku-ai-x-bot",
+  "version": "1.0.0",
+  "description": "論作AI (@ronsaku_ai) X自動投稿ボット",
+  "private": true,
+  "scripts": {
+    "post": "ts-node --project tsconfig.json src/main.ts",
+    "login": "ts-node --project tsconfig.json scripts/login.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "googleapis": "^144.0.0",
+    "playwright": "^1.45.0",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  }
+}
