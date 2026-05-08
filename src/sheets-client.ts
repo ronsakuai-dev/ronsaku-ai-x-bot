@@ -1,7 +1,7 @@
 import { google, sheets_v4 } from "googleapis";
 import { SheetRow } from "./types";
 
-const SHEET_NAME = "Sheet1";
+const SHEET_NAME = "posts";
 /** 投稿対象と判定する先読み時間 (ms) */
 const LOOKAHEAD_MS = 5 * 60 * 1000; // 5分
 

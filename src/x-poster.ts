@@ -1,4 +1,4 @@
-import { chromium, BrowserContext, Page } from "playwright";
+import { chromium, BrowserContext, Page, Locator } from "playwright";
 // playwright-extra と stealth plugin は CommonJS require で読み込む
 // (型定義が不完全なためやむを得ず require を使用)
 // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
@@ -44,15 +44,11 @@ async function sleep(ms: number): Promise<void> {
 /**
  * 人間らしいタイピングをシミュレート
  */
-async function humanType(page: Page, selector: string, text: string): Promise<void> {
-  await page.click(selector);
-  for (const char of text) {
-    await page.keyboard.type(char, { delay: randomInt(40, 120) });
-    // 稀に長めポーズ
-    if (Math.random() < 0.05) {
-      await sleep(randomInt(200, 500));
-    }
-  }
+async function humanType(locator: Locator, text: string): Promise<void> {
+  await locator.click();
+  await sleep(randomInt(200, 500));
+  // pressSequentially は locator-aware で contenteditable(DraftJS等)への入力反映が安定する
+  await locator.pressSequentially(text, { delay: randomInt(60, 110) });
 }
 
 /**
@@ -106,11 +102,23 @@ async function launchBrowser(headless: boolean): Promise<BrowserContext> {
 
 async function isLoggedIn(page: Page): Promise<boolean> {
   await page.goto(X_HOME, { waitUntil: "domcontentloaded", timeout: 30_000 });
-  await sleep(randomInt(1000, 2000));
+  await sleep(randomInt(2500, 4000));
 
-  // ログイン済みなら compose ボタンがある
-  const composeButton = page.locator('[data-testid="SideNav_NewTweet_Button"]');
-  return (await composeButton.count()) > 0;
+  // 未ログインだと /login や /i/flow/login にリダイレクトされる
+  const url = page.url();
+  if (url.includes("/login") || url.includes("/i/flow")) {
+    return false;
+  }
+
+  // ログイン要素のいずれかが見つかればOK(タイミング差を吸収)
+  const composeBtn = page.locator('[data-testid="SideNav_NewTweet_Button"]');
+  const profileLink = page.locator('[data-testid="AppTabBar_Profile_Link"]');
+  try {
+    await composeBtn.or(profileLink).first().waitFor({ state: "visible", timeout: 8_000 });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ------- 画像アップロード -------
@@ -159,15 +167,15 @@ export async function postToX(row: SheetRow): Promise<PostResult> {
     await page.goto(X_COMPOSE_URL, { waitUntil: "domcontentloaded", timeout: 30_000 });
     await sleep(randomInt(1000, 2000));
 
-    // テキストエリアを探す
-    const tweetBox = page.locator('[data-testid="tweetTextarea_0"]');
+    // テキストエリアを探す(複数マッチする可能性があるため first を使用)
+    const tweetBox = page.locator('[data-testid="tweetTextarea_0"]').first();
     await tweetBox.waitFor({ state: "visible", timeout: 15_000 });
 
     await randomMouseMovement(page);
     await sleep(randomInt(300, 800));
 
     // テキスト入力(人間風タイピング)
-    await humanType(page, '[data-testid="tweetTextarea_0"]', row.text);
+    await humanType(tweetBox, row.text);
     await sleep(randomInt(500, 1500));
 
     // 画像アップロード(任意)
@@ -178,8 +186,8 @@ export async function postToX(row: SheetRow): Promise<PostResult> {
     await randomMouseMovement(page);
     await sleep(randomInt(500, 1000));
 
-    // 投稿ボタンをクリック
-    const submitButton = page.locator('[data-testid="tweetButtonInline"]');
+    // 投稿ボタンをクリック(/compose/tweet ダイアログでは tweetButton が正しい)
+    const submitButton = page.locator('[data-testid="tweetButton"]').first();
     await submitButton.waitFor({ state: "visible", timeout: 10_000 });
     await submitButton.click();
 
