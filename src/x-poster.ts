@@ -177,10 +177,20 @@ async function getLatestTweetHref(context: BrowserContext): Promise<string> {
  */
 async function saveScreenshot(page: Page | null, prefix: string): Promise<string> {
   if (!page) return "";
-  const filePath = `/tmp/x-bot-${prefix}-${Date.now()}.png`;
+  const ts = Date.now();
+  const viewportPath = `/tmp/x-bot-${prefix}-viewport-${ts}.png`;
+  const dialogPath = `/tmp/x-bot-${prefix}-dialog-${ts}.png`;
   try {
-    await page.screenshot({ path: filePath, fullPage: true });
-    return filePath;
+    // 1) viewport内だけ(モーダルがクッキリ見える)
+    await page.screenshot({ path: viewportPath, fullPage: false });
+    // 2) composeダイアログ要素だけ(背景透過なし)
+    try {
+      const dialog = page.locator('[role="dialog"]').first();
+      if (await dialog.count() > 0) {
+        await dialog.screenshot({ path: dialogPath });
+      }
+    } catch { /* ダイアログ無くても致命的ではない */ }
+    return viewportPath;
   } catch {
     return "";
   }
@@ -233,6 +243,22 @@ export async function postToX(row: SheetRow): Promise<PostResult> {
     // 投稿実行: 通常クリック → force → JS直接click → キーボードの順でフォールバック
     const submitButton = page.locator('[data-testid="tweetButton"]').first();
     await submitButton.waitFor({ state: "visible", timeout: 10_000 });
+
+    // デバッグ: ボタンのenabled状態とtweetBoxの実テキストを取得
+    const buttonDisabled = await submitButton.isDisabled().catch(() => false);
+    const actualText = await tweetBox.innerText().catch(() => "");
+    const charCount = actualText.length;
+    console.log(`[DEBUG] submitButton.disabled=${buttonDisabled} | tweetBoxText.length=${charCount} | preview="${actualText.substring(0, 30)}..."`);
+    // ボタンが無効化されていたら早期にスクショ取って失敗扱い
+    if (buttonDisabled) {
+      const screenshotPath = await saveScreenshot(page, "button-disabled");
+      return {
+        success: false,
+        error: `投稿ボタンが disabled 状態(本文未入力 or 文字数オーバー or 画像エラー の可能性)。実テキスト長=${charCount}`,
+        screenshotPath,
+      };
+    }
+
     const shortcutModifier = process.platform === "darwin" ? "Meta" : "Control";
     try {
       await submitButton.click({ timeout: 5_000 });
