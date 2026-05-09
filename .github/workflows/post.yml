@@ -1,10 +1,11 @@
 name: X Auto Post
 
 on:
-  schedule:
-    # 15分ごとに実行 (朝7時/昼12時/夜19時の前後15分以内にカバー)
-    - cron: '0,15,30,45 * * * *'
-  workflow_dispatch: {}  # 手動実行も可能
+  # cron は一時停止中(2026-05-09〜): @ronsaku_ai がX側でbot判定状態のため、
+  # 信用回復(人間活動)が確認できるまで手動実行のみ
+  # schedule:
+  #   - cron: '0,15,30,45 * * * *'
+  workflow_dispatch: {}  # 手動実行のみ
 
 jobs:
   post:
