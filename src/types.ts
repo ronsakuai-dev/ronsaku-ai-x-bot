@@ -28,6 +28,7 @@ export interface PostResult {
   success: boolean;
   tweetUrl?: string;
   error?: string;
+  screenshotPath?: string; // 失敗時のデバッグ用スクリーンショット
 }
 
 export interface AuthState {

@@ -39,6 +39,15 @@ jobs:
           GOOGLE_APPLICATION_CREDENTIALS: ./.sa.json
           CI: "true"
 
+      - name: Upload failure screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-screenshots
+          path: /tmp/x-bot-*.png
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Cleanup credentials
         if: always()
         run: |

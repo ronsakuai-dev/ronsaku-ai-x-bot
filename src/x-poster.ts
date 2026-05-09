@@ -175,13 +175,25 @@ async function getLatestTweetHref(context: BrowserContext): Promise<string> {
 /**
  * X に投稿して投稿URLを返す
  */
+async function saveScreenshot(page: Page | null, prefix: string): Promise<string> {
+  if (!page) return "";
+  const filePath = `/tmp/x-bot-${prefix}-${Date.now()}.png`;
+  try {
+    await page.screenshot({ path: filePath, fullPage: true });
+    return filePath;
+  } catch {
+    return "";
+  }
+}
+
 export async function postToX(row: SheetRow): Promise<PostResult> {
   const isCI = process.env.CI === "true";
   const context = await launchBrowser(isCI);
+  let page: Page | null = null;
 
   try {
     await loadAuth(context);
-    const page = await context.newPage();
+    page = await context.newPage();
 
     // ログイン確認
     const loggedIn = await isLoggedIn(page);
@@ -248,9 +260,11 @@ export async function postToX(row: SheetRow): Promise<PostResult> {
     const stillVisible = await tweetBox.isVisible().catch(() => false);
     if (stillVisible) {
       // テキストエリアがまだ見える = 投稿失敗(モーダルが閉じていない)
+      const screenshotPath = await saveScreenshot(page, "compose-not-closed");
       return {
         success: false,
         error: "投稿後も compose ダイアログが閉じておらず、投稿が確定していません",
+        screenshotPath,
       };
     }
 
@@ -269,9 +283,11 @@ export async function postToX(row: SheetRow): Promise<PostResult> {
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    const screenshotPath = await saveScreenshot(page, "exception");
     return {
       success: false,
       error: message,
+      screenshotPath,
     };
   } finally {
     await context.browser()?.close();

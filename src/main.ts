@@ -98,6 +98,9 @@ async function run(): Promise<void> {
         "ERROR",
         `投稿失敗 (行${row.rowIndex}): ${result.error ?? "不明なエラー"} [連続失敗: ${consecutiveFailures}/${CIRCUIT_BREAKER_THRESHOLD}]`
       );
+      if (result.screenshotPath) {
+        log("ERROR", `スクリーンショット保存: ${result.screenshotPath}`);
+      }
     }
 
     // 複数件ある場合は投稿間に追加遅延
